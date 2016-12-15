@@ -1,0 +1,823 @@
+'/*
+' * Tulip Cell
+' * https://tulipcell.org/
+' * Copyright (c) 2010-2016 Tulip Charts LLC
+' * Lewis Van Winkle (LV@tulipcharts.org)
+' *
+' * This file is part of Tulip Cell.
+' *
+' * Tulip Cell is free software: you can redistribute it and/or modify it
+' * under the terms of the GNU Lesser General Public License as published by the
+' * Free Software Foundation, either version 3 of the License, or (at your
+' * option) any later version.
+' *
+' * Tulip Cell is distributed in the hope that it will be useful, but
+' * WITHOUT ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
+' * FITNESS FOR A PARTICULAR PURPOSE.  See the GNU Lesser General Public License
+' * for more details.
+' *
+' * You should have received a copy of the GNU Lesser General Public License
+' * along with Tulip Cell.  If not, see <http://www.gnu.org/licenses/>.
+' *
+' */
+
+' * Tulip Cell version: 0.8.0
+' * TI VERSION: 0.8.0, TI BUILD: 1481831503
+
+
+
+'ADD THIS CODE TO THE WORKBOOK
+Private WithEvents App As Application
+
+Private Sub App_WorkbookActivate(ByVal Wb As Workbook)
+    TI_RegisterHelp
+    TI_CheckForUpdate
+End Sub
+
+Private Sub Workbook_Open()
+    Set App = Application
+End Sub
+'END OF WORKBOOK CODE
+
+
+
+Option Explicit
+
+#If win64 Then
+Private Declare PtrSafe Function TI_GetIndicator Lib "tulipcell64.dll" Alias "GetIndicator" (ByVal name As String) As Long
+Private Declare PtrSafe Function TI_Call Lib "tulipcell64.dll" Alias "Call" (ByVal index As Long, ByVal size As Long, ByRef inputs_in As Double, ByRef options As Double, ByRef outputs As Double) As Long
+Private Declare PtrSafe Function TI_GetStart Lib "tulipcell64.dll" Alias "GetStart" (ByVal index As Long, ByRef options As Double) As Long
+Private Declare PtrSafe Function TI_GetInputCount Lib "tulipcell64.dll" Alias "GetInputCount" (ByVal index As Long) As Long
+Private Declare PtrSafe Function TI_GetOptionCount Lib "tulipcell64.dll" Alias "GetOptionCount" (ByVal index As Long) As Long
+Private Declare PtrSafe Function TI_GetOutputCount Lib "tulipcell64.dll" Alias "GetOutputCount" (ByVal index As Long) As Long
+#Else
+Private Declare Function TI_GetIndicator Lib "tulipcell32.dll" Alias "GetIndicator" (ByVal name As String) As Long
+Private Declare Function TI_Call Lib "tulipcell32.dll" Alias "Call" (ByVal index As Long, ByVal size As Long, ByRef inputs_in As Double, ByRef options As Double, ByRef outputs As Double) As Long
+Private Declare Function TI_GetStart Lib "tulipcell32.dll" Alias "GetStart" (ByVal index As Long, ByRef options As Double) As Long
+Private Declare Function TI_GetInputCount Lib "tulipcell32.dll" Alias "GetInputCount" (ByVal index As Long) As Long
+Private Declare Function TI_GetOptionCount Lib "tulipcell32.dll" Alias "GetOptionCount" (ByVal index As Long) As Long
+Private Declare Function TI_GetOutputCount Lib "tulipcell32.dll" Alias "GetOutputCount" (ByVal index As Long) As Long
+#End If
+
+
+Dim TI_HasUpdate as Integer
+
+Public Sub TI_CheckForUpdate()
+    On Error GoTo errHandler
+
+    If (TI_HasUpdate <> 0) then
+        goto done
+    End If
+
+    Dim ie As Object
+    Set ie = CreateObject("internetexplorer.application")
+    ie.Visible = False
+
+    Dim version as long
+    version = 800
+
+    ie.navigate "https://tulipcell.org/update?version=" & version & "&extra=" & Application.Version
+
+    Do While ie.readystate <> 4: DoEvents: Loop
+
+    Dim html As String
+    html = ie.Document.DocumentElement.innerHTML()
+
+    If html Like "*update ready*" Then
+        TI_HasUpdate = 1
+    else
+        TI_HasUpdate = 2
+    End If
+
+    ie.Quit
+    Set ie = Nothing
+
+errHandler:
+    If Err.Number <> 0 Then
+        Debug.Print "Tulip Cell couldn't check for updates. " & Err.Description
+    End If
+
+done:
+End Sub
+
+
+Public Function TI_CallByName(name As String, ParamArray params() As Variant)
+    On Error GoTo errHandler
+
+    If (TI_HasUpdate = 1) Then
+        TI_HasUpdate = 3
+        MsgBox "There is a new version of Tulip Cell available." & vbCrLf & "Please visit https://tulipcell.org/ to update today.", vbInformation, "Tulip Cell"
+    End If
+
+    ChDir (ThisWorkbook.Path)
+
+    Dim index As Long
+    index = TI_GetIndicator(name)
+    If (index < 0) Then
+        MsgBox "Error. Couldn't find indicator index for " & name & "."
+        GoTo done
+    End If
+
+    Dim input_count As Long, option_count As Long, output_count As Long
+    input_count = TI_GetInputCount(index)
+    option_count = TI_GetOptionCount(index)
+    output_count = TI_GetOutputCount(index)
+
+    If (UBound(params) + 1 <> input_count + option_count) Then
+        MsgBox "Error: Wrong number of inputs or options for TI_CallByName(" & name & ")."
+        GoTo done
+    End If
+
+
+    Dim size As Long
+    size = params(0).Count
+
+    Dim in_arr() As Double
+    Dim opt_arr() As Double
+    Dim out_arr() As Double
+
+    ReDim in_arr(size * input_count)
+    ReDim opt_arr(option_count)
+    ReDim out_arr(size * output_count)
+
+
+    Dim i As Integer
+    Dim pi As Integer
+    Dim cell As Variant
+    i = 0
+    For pi = 0 To input_count - 1
+        If (params(pi).Count <> size) Then
+            MsgBox "Error: All inputs are expected to be the same size."
+            GoTo done
+        End If
+
+        For Each cell In params(pi)
+            in_arr(i) = cell.Value
+            i = i + 1
+        Next cell
+    Next pi
+
+
+    For i = 0 To option_count - 1
+        opt_arr(i) = params(i + input_count)
+    Next i
+
+
+
+    Dim ret As Long
+    ret = TI_Call(index, size, in_arr(0), opt_arr(0), out_arr(0))
+
+    If (ret <> 0) Then
+        TI_CallByName = 0
+        GoTo done
+    End If
+
+    Dim start As Long
+    start = TI_GetStart(index, opt_arr(0))
+
+    Dim out_shape() As Variant
+    Dim col As Long, row As Long
+    ReDim out_shape(size, output_count)
+    For i = 0 To UBound(out_arr)
+        col = Int(i / size)
+        row = i Mod size
+        If (row < start) then
+            out_shape(row, col) = ""
+        Else
+            out_shape(row, col) = out_arr(i)
+        End If
+    Next i
+    TI_CallByName = out_shape
+
+
+errHandler:
+    If Err.Number <> 0 Then
+        MsgBox Err.Description, vbCritical, Err.Number
+    End If
+
+done:
+
+End Function
+
+
+'Vector Absolute Value
+Public Function TI_ABS(Input1Range As Range)
+    TI_ABS = TI_CallByName("abs", Input1Range)
+End Function
+
+'Vector Arccosine
+Public Function TI_ACOS(Input1Range As Range)
+    TI_ACOS = TI_CallByName("acos", Input1Range)
+End Function
+
+'Accumulation/Distribution Line
+Public Function TI_AD(HighRange As Range, LowRange As Range, CloseRange As Range, VolumeRange As Range)
+    TI_AD = TI_CallByName("ad", HighRange, LowRange, CloseRange, VolumeRange)
+End Function
+
+'Vector Addition
+Public Function TI_ADD(Input1Range As Range, Input2Range As Range)
+    TI_ADD = TI_CallByName("add", Input1Range, Input2Range)
+End Function
+
+'Accumulation/Distribution Oscillator
+Public Function TI_ADOSC(HighRange As Range, LowRange As Range, CloseRange As Range, VolumeRange As Range, ShortPeriod As Double, LongPeriod As Double)
+    TI_ADOSC = TI_CallByName("adosc", HighRange, LowRange, CloseRange, VolumeRange, ShortPeriod, LongPeriod)
+End Function
+
+'Average Directional Movement Index
+Public Function TI_ADX(HighRange As Range, LowRange As Range, CloseRange As Range, Period As Double)
+    TI_ADX = TI_CallByName("adx", HighRange, LowRange, CloseRange, Period)
+End Function
+
+'Average Directional Movement Rating
+Public Function TI_ADXR(HighRange As Range, LowRange As Range, CloseRange As Range, Period As Double)
+    TI_ADXR = TI_CallByName("adxr", HighRange, LowRange, CloseRange, Period)
+End Function
+
+'Awesome Oscillator
+Public Function TI_AO(HighRange As Range, LowRange As Range)
+    TI_AO = TI_CallByName("ao", HighRange, LowRange)
+End Function
+
+'Absolute Price Oscillator
+Public Function TI_APO(Input1Range As Range, ShortPeriod As Double, LongPeriod As Double)
+    TI_APO = TI_CallByName("apo", Input1Range, ShortPeriod, LongPeriod)
+End Function
+
+'Aroon
+Public Function TI_AROON(HighRange As Range, LowRange As Range, Period As Double)
+    TI_AROON = TI_CallByName("aroon", HighRange, LowRange, Period)
+End Function
+
+'Aroon Oscillator
+Public Function TI_AROONOSC(HighRange As Range, LowRange As Range, Period As Double)
+    TI_AROONOSC = TI_CallByName("aroonosc", HighRange, LowRange, Period)
+End Function
+
+'Vector Arcsine
+Public Function TI_ASIN(Input1Range As Range)
+    TI_ASIN = TI_CallByName("asin", Input1Range)
+End Function
+
+'Vector Arctangent
+Public Function TI_ATAN(Input1Range As Range)
+    TI_ATAN = TI_CallByName("atan", Input1Range)
+End Function
+
+'Average True Range
+Public Function TI_ATR(HighRange As Range, LowRange As Range, CloseRange As Range, Period As Double)
+    TI_ATR = TI_CallByName("atr", HighRange, LowRange, CloseRange, Period)
+End Function
+
+'Average Price
+Public Function TI_AVGPRICE(OpenRange As Range, HighRange As Range, LowRange As Range, CloseRange As Range)
+    TI_AVGPRICE = TI_CallByName("avgprice", OpenRange, HighRange, LowRange, CloseRange)
+End Function
+
+'Bollinger Bands
+Public Function TI_BBANDS(Input1Range As Range, Period As Double, Stddev As Double)
+    TI_BBANDS = TI_CallByName("bbands", Input1Range, Period, Stddev)
+End Function
+
+'Balance of Power
+Public Function TI_BOP(OpenRange As Range, HighRange As Range, LowRange As Range, CloseRange As Range)
+    TI_BOP = TI_CallByName("bop", OpenRange, HighRange, LowRange, CloseRange)
+End Function
+
+'Commodity Channel Index
+Public Function TI_CCI(HighRange As Range, LowRange As Range, CloseRange As Range, Period As Double)
+    TI_CCI = TI_CallByName("cci", HighRange, LowRange, CloseRange, Period)
+End Function
+
+'Vector Ceiling
+Public Function TI_CEIL(Input1Range As Range)
+    TI_CEIL = TI_CallByName("ceil", Input1Range)
+End Function
+
+'Chande Momentum Oscillator
+Public Function TI_CMO(Input1Range As Range, Period As Double)
+    TI_CMO = TI_CallByName("cmo", Input1Range, Period)
+End Function
+
+'Vector Cosine
+Public Function TI_COS(Input1Range As Range)
+    TI_COS = TI_CallByName("cos", Input1Range)
+End Function
+
+'Vector Hyperbolic Cosine
+Public Function TI_COSH(Input1Range As Range)
+    TI_COSH = TI_CallByName("cosh", Input1Range)
+End Function
+
+'Crossany
+Public Function TI_CROSSANY(Input1Range As Range, Input2Range As Range)
+    TI_CROSSANY = TI_CallByName("crossany", Input1Range, Input2Range)
+End Function
+
+'Crossover
+Public Function TI_CROSSOVER(Input1Range As Range, Input2Range As Range)
+    TI_CROSSOVER = TI_CallByName("crossover", Input1Range, Input2Range)
+End Function
+
+'Chaikins Volatility
+Public Function TI_CVI(HighRange As Range, LowRange As Range, Period As Double)
+    TI_CVI = TI_CallByName("cvi", HighRange, LowRange, Period)
+End Function
+
+'Linear Decay
+Public Function TI_DECAY(Input1Range As Range, Period As Double)
+    TI_DECAY = TI_CallByName("decay", Input1Range, Period)
+End Function
+
+'Double Exponential Moving Average
+Public Function TI_DEMA(Input1Range As Range, Period As Double)
+    TI_DEMA = TI_CallByName("dema", Input1Range, Period)
+End Function
+
+'Directional Indicator
+Public Function TI_DI(HighRange As Range, LowRange As Range, CloseRange As Range, Period As Double)
+    TI_DI = TI_CallByName("di", HighRange, LowRange, CloseRange, Period)
+End Function
+
+'Vector Division
+Public Function TI_DIV(Input1Range As Range, Input2Range As Range)
+    TI_DIV = TI_CallByName("div", Input1Range, Input2Range)
+End Function
+
+'Directional Movement
+Public Function TI_DM(HighRange As Range, LowRange As Range, Period As Double)
+    TI_DM = TI_CallByName("dm", HighRange, LowRange, Period)
+End Function
+
+'Detrended Price Oscillator
+Public Function TI_DPO(Input1Range As Range, Period As Double)
+    TI_DPO = TI_CallByName("dpo", Input1Range, Period)
+End Function
+
+'Directional Movement Index
+Public Function TI_DX(HighRange As Range, LowRange As Range, CloseRange As Range, Period As Double)
+    TI_DX = TI_CallByName("dx", HighRange, LowRange, CloseRange, Period)
+End Function
+
+'Exponential Decay
+Public Function TI_EDECAY(Input1Range As Range, Period As Double)
+    TI_EDECAY = TI_CallByName("edecay", Input1Range, Period)
+End Function
+
+'Exponential Moving Average
+Public Function TI_EMA(Input1Range As Range, Period As Double)
+    TI_EMA = TI_CallByName("ema", Input1Range, Period)
+End Function
+
+'Ease of Movement
+Public Function TI_EMV(HighRange As Range, LowRange As Range, VolumeRange As Range)
+    TI_EMV = TI_CallByName("emv", HighRange, LowRange, VolumeRange)
+End Function
+
+'Vector Exponential
+Public Function TI_EXP(Input1Range As Range)
+    TI_EXP = TI_CallByName("exp", Input1Range)
+End Function
+
+'Fisher Transform
+Public Function TI_FISHER(HighRange As Range, LowRange As Range, Period As Double)
+    TI_FISHER = TI_CallByName("fisher", HighRange, LowRange, Period)
+End Function
+
+'Vector Floor
+Public Function TI_FLOOR(Input1Range As Range)
+    TI_FLOOR = TI_CallByName("floor", Input1Range)
+End Function
+
+'Forecast Oscillator
+Public Function TI_FOSC(Input1Range As Range, Period As Double)
+    TI_FOSC = TI_CallByName("fosc", Input1Range, Period)
+End Function
+
+'Hull Moving Average
+Public Function TI_HMA(Input1Range As Range, Period As Double)
+    TI_HMA = TI_CallByName("hma", Input1Range, Period)
+End Function
+
+'Kaufman Adaptive Moving Average
+Public Function TI_KAMA(Input1Range As Range, Period As Double)
+    TI_KAMA = TI_CallByName("kama", Input1Range, Period)
+End Function
+
+'Klinger Volume Oscillator
+Public Function TI_KVO(HighRange As Range, LowRange As Range, CloseRange As Range, VolumeRange As Range, ShortPeriod As Double, LongPeriod As Double)
+    TI_KVO = TI_CallByName("kvo", HighRange, LowRange, CloseRange, VolumeRange, ShortPeriod, LongPeriod)
+End Function
+
+'Lag
+Public Function TI_LAG(Input1Range As Range, Period As Double)
+    TI_LAG = TI_CallByName("lag", Input1Range, Period)
+End Function
+
+'Linear Regression
+Public Function TI_LINREG(Input1Range As Range, Period As Double)
+    TI_LINREG = TI_CallByName("linreg", Input1Range, Period)
+End Function
+
+'Linear Regression Intercept
+Public Function TI_LINREGINTERCEPT(Input1Range As Range, Period As Double)
+    TI_LINREGINTERCEPT = TI_CallByName("linregintercept", Input1Range, Period)
+End Function
+
+'Linear Regression Slope
+Public Function TI_LINREGSLOPE(Input1Range As Range, Period As Double)
+    TI_LINREGSLOPE = TI_CallByName("linregslope", Input1Range, Period)
+End Function
+
+'Vector Natural Log
+Public Function TI_LN(Input1Range As Range)
+    TI_LN = TI_CallByName("ln", Input1Range)
+End Function
+
+'Vector Base-10 Log
+Public Function TI_LOG10(Input1Range As Range)
+    TI_LOG10 = TI_CallByName("log10", Input1Range)
+End Function
+
+'Moving Average Convergence/Divergence
+Public Function TI_MACD(Input1Range As Range, ShortPeriod As Double, LongPeriod As Double, SignalPeriod As Double)
+    TI_MACD = TI_CallByName("macd", Input1Range, ShortPeriod, LongPeriod, SignalPeriod)
+End Function
+
+'Market Facilitation Index
+Public Function TI_MARKETFI(HighRange As Range, LowRange As Range, VolumeRange As Range)
+    TI_MARKETFI = TI_CallByName("marketfi", HighRange, LowRange, VolumeRange)
+End Function
+
+'Mass Index
+Public Function TI_MASS(HighRange As Range, LowRange As Range, Period As Double)
+    TI_MASS = TI_CallByName("mass", HighRange, LowRange, Period)
+End Function
+
+'Maximum In Period
+Public Function TI_MAX(Input1Range As Range, Period As Double)
+    TI_MAX = TI_CallByName("max", Input1Range, Period)
+End Function
+
+'Mean Deviation Over Period
+Public Function TI_MD(Input1Range As Range, Period As Double)
+    TI_MD = TI_CallByName("md", Input1Range, Period)
+End Function
+
+'Median Price
+Public Function TI_MEDPRICE(HighRange As Range, LowRange As Range)
+    TI_MEDPRICE = TI_CallByName("medprice", HighRange, LowRange)
+End Function
+
+'Money Flow Index
+Public Function TI_MFI(HighRange As Range, LowRange As Range, CloseRange As Range, VolumeRange As Range, Period As Double)
+    TI_MFI = TI_CallByName("mfi", HighRange, LowRange, CloseRange, VolumeRange, Period)
+End Function
+
+'Minimum In Period
+Public Function TI_MIN(Input1Range As Range, Period As Double)
+    TI_MIN = TI_CallByName("min", Input1Range, Period)
+End Function
+
+'Momentum
+Public Function TI_MOM(Input1Range As Range, Period As Double)
+    TI_MOM = TI_CallByName("mom", Input1Range, Period)
+End Function
+
+'Mesa Sine Wave
+Public Function TI_MSW(Input1Range As Range, Period As Double)
+    TI_MSW = TI_CallByName("msw", Input1Range, Period)
+End Function
+
+'Vector Multiplication
+Public Function TI_MUL(Input1Range As Range, Input2Range As Range)
+    TI_MUL = TI_CallByName("mul", Input1Range, Input2Range)
+End Function
+
+'Normalized Average True Range
+Public Function TI_NATR(HighRange As Range, LowRange As Range, CloseRange As Range, Period As Double)
+    TI_NATR = TI_CallByName("natr", HighRange, LowRange, CloseRange, Period)
+End Function
+
+'Negative Volume Index
+Public Function TI_NVI(CloseRange As Range, VolumeRange As Range)
+    TI_NVI = TI_CallByName("nvi", CloseRange, VolumeRange)
+End Function
+
+'On Balance Volume
+Public Function TI_OBV(CloseRange As Range, VolumeRange As Range)
+    TI_OBV = TI_CallByName("obv", CloseRange, VolumeRange)
+End Function
+
+'Percentage Price Oscillator
+Public Function TI_PPO(Input1Range As Range, ShortPeriod As Double, LongPeriod As Double)
+    TI_PPO = TI_CallByName("ppo", Input1Range, ShortPeriod, LongPeriod)
+End Function
+
+'Parabolic SAR
+Public Function TI_PSAR(HighRange As Range, LowRange As Range, AccelerationFactorStep As Double, AccelerationFactorMaximum As Double)
+    TI_PSAR = TI_CallByName("psar", HighRange, LowRange, AccelerationFactorStep, AccelerationFactorMaximum)
+End Function
+
+'Positive Volume Index
+Public Function TI_PVI(CloseRange As Range, VolumeRange As Range)
+    TI_PVI = TI_CallByName("pvi", CloseRange, VolumeRange)
+End Function
+
+'Qstick
+Public Function TI_QSTICK(OpenRange As Range, CloseRange As Range, Period As Double)
+    TI_QSTICK = TI_CallByName("qstick", OpenRange, CloseRange, Period)
+End Function
+
+'Rate of Change
+Public Function TI_ROC(Input1Range As Range, Period As Double)
+    TI_ROC = TI_CallByName("roc", Input1Range, Period)
+End Function
+
+'Rate of Change Ratio
+Public Function TI_ROCR(Input1Range As Range, Period As Double)
+    TI_ROCR = TI_CallByName("rocr", Input1Range, Period)
+End Function
+
+'Vector Round
+Public Function TI_ROUND(Input1Range As Range)
+    TI_ROUND = TI_CallByName("round", Input1Range)
+End Function
+
+'Relative Strength Index
+Public Function TI_RSI(Input1Range As Range, Period As Double)
+    TI_RSI = TI_CallByName("rsi", Input1Range, Period)
+End Function
+
+'Vector Sine
+Public Function TI_SIN(Input1Range As Range)
+    TI_SIN = TI_CallByName("sin", Input1Range)
+End Function
+
+'Vector Hyperbolic Sine
+Public Function TI_SINH(Input1Range As Range)
+    TI_SINH = TI_CallByName("sinh", Input1Range)
+End Function
+
+'Simple Moving Average
+Public Function TI_SMA(Input1Range As Range, Period As Double)
+    TI_SMA = TI_CallByName("sma", Input1Range, Period)
+End Function
+
+'Vector Square Root
+Public Function TI_SQRT(Input1Range As Range)
+    TI_SQRT = TI_CallByName("sqrt", Input1Range)
+End Function
+
+'Standard Deviation Over Period
+Public Function TI_STDDEV(Input1Range As Range, Period As Double)
+    TI_STDDEV = TI_CallByName("stddev", Input1Range, Period)
+End Function
+
+'Standard Error Over Period
+Public Function TI_STDERR(Input1Range As Range, Period As Double)
+    TI_STDERR = TI_CallByName("stderr", Input1Range, Period)
+End Function
+
+'Stochastic Oscillator
+Public Function TI_STOCH(HighRange As Range, LowRange As Range, CloseRange As Range, kPeriod As Double, kSlowingPeriod As Double, dPeriod As Double)
+    TI_STOCH = TI_CallByName("stoch", HighRange, LowRange, CloseRange, kPeriod, kSlowingPeriod, dPeriod)
+End Function
+
+'Vector Subtraction
+Public Function TI_SUB(Input1Range As Range, Input2Range As Range)
+    TI_SUB = TI_CallByName("sub", Input1Range, Input2Range)
+End Function
+
+'Sum Over Period
+Public Function TI_SUM(Input1Range As Range, Period As Double)
+    TI_SUM = TI_CallByName("sum", Input1Range, Period)
+End Function
+
+'Vector Tangent
+Public Function TI_TAN(Input1Range As Range)
+    TI_TAN = TI_CallByName("tan", Input1Range)
+End Function
+
+'Vector Hyperbolic Tangent
+Public Function TI_TANH(Input1Range As Range)
+    TI_TANH = TI_CallByName("tanh", Input1Range)
+End Function
+
+'Triple Exponential Moving Average
+Public Function TI_TEMA(Input1Range As Range, Period As Double)
+    TI_TEMA = TI_CallByName("tema", Input1Range, Period)
+End Function
+
+'Vector Degree Conversion
+Public Function TI_TODEG(Input1Range As Range)
+    TI_TODEG = TI_CallByName("todeg", Input1Range)
+End Function
+
+'Vector Radian Conversion
+Public Function TI_TORAD(Input1Range As Range)
+    TI_TORAD = TI_CallByName("torad", Input1Range)
+End Function
+
+'True Range
+Public Function TI_TR(HighRange As Range, LowRange As Range, CloseRange As Range)
+    TI_TR = TI_CallByName("tr", HighRange, LowRange, CloseRange)
+End Function
+
+'Triangular Moving Average
+Public Function TI_TRIMA(Input1Range As Range, Period As Double)
+    TI_TRIMA = TI_CallByName("trima", Input1Range, Period)
+End Function
+
+'Trix
+Public Function TI_TRIX(Input1Range As Range, Period As Double)
+    TI_TRIX = TI_CallByName("trix", Input1Range, Period)
+End Function
+
+'Vector Truncate
+Public Function TI_TRUNC(Input1Range As Range)
+    TI_TRUNC = TI_CallByName("trunc", Input1Range)
+End Function
+
+'Time Series Forecast
+Public Function TI_TSF(Input1Range As Range, Period As Double)
+    TI_TSF = TI_CallByName("tsf", Input1Range, Period)
+End Function
+
+'Typical Price
+Public Function TI_TYPPRICE(HighRange As Range, LowRange As Range, CloseRange As Range)
+    TI_TYPPRICE = TI_CallByName("typprice", HighRange, LowRange, CloseRange)
+End Function
+
+'Ultimate Oscillator
+Public Function TI_ULTOSC(HighRange As Range, LowRange As Range, CloseRange As Range, ShortPeriod As Double, MediumPeriod As Double, LongPeriod As Double)
+    TI_ULTOSC = TI_CallByName("ultosc", HighRange, LowRange, CloseRange, ShortPeriod, MediumPeriod, LongPeriod)
+End Function
+
+'Variance Over Period
+Public Function TI_VAR(Input1Range As Range, Period As Double)
+    TI_VAR = TI_CallByName("var", Input1Range, Period)
+End Function
+
+'Vertical Horizontal Filter
+Public Function TI_VHF(Input1Range As Range, Period As Double)
+    TI_VHF = TI_CallByName("vhf", Input1Range, Period)
+End Function
+
+'Variable Index Dynamic Average
+Public Function TI_VIDYA(Input1Range As Range, ShortPeriod As Double, LongPeriod As Double, Alpha As Double)
+    TI_VIDYA = TI_CallByName("vidya", Input1Range, ShortPeriod, LongPeriod, Alpha)
+End Function
+
+'Annualized Historical Volatility
+Public Function TI_VOLATILITY(Input1Range As Range, Period As Double)
+    TI_VOLATILITY = TI_CallByName("volatility", Input1Range, Period)
+End Function
+
+'Volume Oscillator
+Public Function TI_VOSC(VolumeRange As Range, ShortPeriod As Double, LongPeriod As Double)
+    TI_VOSC = TI_CallByName("vosc", VolumeRange, ShortPeriod, LongPeriod)
+End Function
+
+'Volume Weighted Moving Average
+Public Function TI_VWMA(CloseRange As Range, VolumeRange As Range, Period As Double)
+    TI_VWMA = TI_CallByName("vwma", CloseRange, VolumeRange, Period)
+End Function
+
+'Williams Accumulation/Distribution
+Public Function TI_WAD(HighRange As Range, LowRange As Range, CloseRange As Range)
+    TI_WAD = TI_CallByName("wad", HighRange, LowRange, CloseRange)
+End Function
+
+'Weighted Close Price
+Public Function TI_WCPRICE(HighRange As Range, LowRange As Range, CloseRange As Range)
+    TI_WCPRICE = TI_CallByName("wcprice", HighRange, LowRange, CloseRange)
+End Function
+
+'Wilders Smoothing
+Public Function TI_WILDERS(Input1Range As Range, Period As Double)
+    TI_WILDERS = TI_CallByName("wilders", Input1Range, Period)
+End Function
+
+'Williams %R
+Public Function TI_WILLR(HighRange As Range, LowRange As Range, CloseRange As Range, Period As Double)
+    TI_WILLR = TI_CallByName("willr", HighRange, LowRange, CloseRange, Period)
+End Function
+
+'Weighted Moving Average
+Public Function TI_WMA(Input1Range As Range, Period As Double)
+    TI_WMA = TI_CallByName("wma", Input1Range, Period)
+End Function
+
+'Zero-Lag Exponential Moving Average
+Public Function TI_ZLEMA(Input1Range As Range, Period As Double)
+    TI_ZLEMA = TI_CallByName("zlema", Input1Range, Period)
+End Function
+
+
+Public Sub TI_RegisterHelp()
+    Application.MacroOptions Macro:="TI_ABS", Description:="Vector Absolute Value", Category:="Tulip Cell Technical Analysis"
+    Application.MacroOptions Macro:="TI_ACOS", Description:="Vector Arccosine", Category:="Tulip Cell Technical Analysis"
+    Application.MacroOptions Macro:="TI_AD", Description:="Accumulation/Distribution Line", Category:="Tulip Cell Technical Analysis"
+    Application.MacroOptions Macro:="TI_ADD", Description:="Vector Addition", Category:="Tulip Cell Technical Analysis"
+    Application.MacroOptions Macro:="TI_ADOSC", Description:="Accumulation/Distribution Oscillator", Category:="Tulip Cell Technical Analysis"
+    Application.MacroOptions Macro:="TI_ADX", Description:="Average Directional Movement Index", Category:="Tulip Cell Technical Analysis"
+    Application.MacroOptions Macro:="TI_ADXR", Description:="Average Directional Movement Rating", Category:="Tulip Cell Technical Analysis"
+    Application.MacroOptions Macro:="TI_AO", Description:="Awesome Oscillator", Category:="Tulip Cell Technical Analysis"
+    Application.MacroOptions Macro:="TI_APO", Description:="Absolute Price Oscillator", Category:="Tulip Cell Technical Analysis"
+    Application.MacroOptions Macro:="TI_AROON", Description:="Aroon", Category:="Tulip Cell Technical Analysis"
+    Application.MacroOptions Macro:="TI_AROONOSC", Description:="Aroon Oscillator", Category:="Tulip Cell Technical Analysis"
+    Application.MacroOptions Macro:="TI_ASIN", Description:="Vector Arcsine", Category:="Tulip Cell Technical Analysis"
+    Application.MacroOptions Macro:="TI_ATAN", Description:="Vector Arctangent", Category:="Tulip Cell Technical Analysis"
+    Application.MacroOptions Macro:="TI_ATR", Description:="Average True Range", Category:="Tulip Cell Technical Analysis"
+    Application.MacroOptions Macro:="TI_AVGPRICE", Description:="Average Price", Category:="Tulip Cell Technical Analysis"
+    Application.MacroOptions Macro:="TI_BBANDS", Description:="Bollinger Bands", Category:="Tulip Cell Technical Analysis"
+    Application.MacroOptions Macro:="TI_BOP", Description:="Balance of Power", Category:="Tulip Cell Technical Analysis"
+    Application.MacroOptions Macro:="TI_CCI", Description:="Commodity Channel Index", Category:="Tulip Cell Technical Analysis"
+    Application.MacroOptions Macro:="TI_CEIL", Description:="Vector Ceiling", Category:="Tulip Cell Technical Analysis"
+    Application.MacroOptions Macro:="TI_CMO", Description:="Chande Momentum Oscillator", Category:="Tulip Cell Technical Analysis"
+    Application.MacroOptions Macro:="TI_COS", Description:="Vector Cosine", Category:="Tulip Cell Technical Analysis"
+    Application.MacroOptions Macro:="TI_COSH", Description:="Vector Hyperbolic Cosine", Category:="Tulip Cell Technical Analysis"
+    Application.MacroOptions Macro:="TI_CROSSANY", Description:="Crossany", Category:="Tulip Cell Technical Analysis"
+    Application.MacroOptions Macro:="TI_CROSSOVER", Description:="Crossover", Category:="Tulip Cell Technical Analysis"
+    Application.MacroOptions Macro:="TI_CVI", Description:="Chaikins Volatility", Category:="Tulip Cell Technical Analysis"
+    Application.MacroOptions Macro:="TI_DECAY", Description:="Linear Decay", Category:="Tulip Cell Technical Analysis"
+    Application.MacroOptions Macro:="TI_DEMA", Description:="Double Exponential Moving Average", Category:="Tulip Cell Technical Analysis"
+    Application.MacroOptions Macro:="TI_DI", Description:="Directional Indicator", Category:="Tulip Cell Technical Analysis"
+    Application.MacroOptions Macro:="TI_DIV", Description:="Vector Division", Category:="Tulip Cell Technical Analysis"
+    Application.MacroOptions Macro:="TI_DM", Description:="Directional Movement", Category:="Tulip Cell Technical Analysis"
+    Application.MacroOptions Macro:="TI_DPO", Description:="Detrended Price Oscillator", Category:="Tulip Cell Technical Analysis"
+    Application.MacroOptions Macro:="TI_DX", Description:="Directional Movement Index", Category:="Tulip Cell Technical Analysis"
+    Application.MacroOptions Macro:="TI_EDECAY", Description:="Exponential Decay", Category:="Tulip Cell Technical Analysis"
+    Application.MacroOptions Macro:="TI_EMA", Description:="Exponential Moving Average", Category:="Tulip Cell Technical Analysis"
+    Application.MacroOptions Macro:="TI_EMV", Description:="Ease of Movement", Category:="Tulip Cell Technical Analysis"
+    Application.MacroOptions Macro:="TI_EXP", Description:="Vector Exponential", Category:="Tulip Cell Technical Analysis"
+    Application.MacroOptions Macro:="TI_FISHER", Description:="Fisher Transform", Category:="Tulip Cell Technical Analysis"
+    Application.MacroOptions Macro:="TI_FLOOR", Description:="Vector Floor", Category:="Tulip Cell Technical Analysis"
+    Application.MacroOptions Macro:="TI_FOSC", Description:="Forecast Oscillator", Category:="Tulip Cell Technical Analysis"
+    Application.MacroOptions Macro:="TI_HMA", Description:="Hull Moving Average", Category:="Tulip Cell Technical Analysis"
+    Application.MacroOptions Macro:="TI_KAMA", Description:="Kaufman Adaptive Moving Average", Category:="Tulip Cell Technical Analysis"
+    Application.MacroOptions Macro:="TI_KVO", Description:="Klinger Volume Oscillator", Category:="Tulip Cell Technical Analysis"
+    Application.MacroOptions Macro:="TI_LAG", Description:="Lag", Category:="Tulip Cell Technical Analysis"
+    Application.MacroOptions Macro:="TI_LINREG", Description:="Linear Regression", Category:="Tulip Cell Technical Analysis"
+    Application.MacroOptions Macro:="TI_LINREGINTERCEPT", Description:="Linear Regression Intercept", Category:="Tulip Cell Technical Analysis"
+    Application.MacroOptions Macro:="TI_LINREGSLOPE", Description:="Linear Regression Slope", Category:="Tulip Cell Technical Analysis"
+    Application.MacroOptions Macro:="TI_LN", Description:="Vector Natural Log", Category:="Tulip Cell Technical Analysis"
+    Application.MacroOptions Macro:="TI_LOG10", Description:="Vector Base-10 Log", Category:="Tulip Cell Technical Analysis"
+    Application.MacroOptions Macro:="TI_MACD", Description:="Moving Average Convergence/Divergence", Category:="Tulip Cell Technical Analysis"
+    Application.MacroOptions Macro:="TI_MARKETFI", Description:="Market Facilitation Index", Category:="Tulip Cell Technical Analysis"
+    Application.MacroOptions Macro:="TI_MASS", Description:="Mass Index", Category:="Tulip Cell Technical Analysis"
+    Application.MacroOptions Macro:="TI_MAX", Description:="Maximum In Period", Category:="Tulip Cell Technical Analysis"
+    Application.MacroOptions Macro:="TI_MD", Description:="Mean Deviation Over Period", Category:="Tulip Cell Technical Analysis"
+    Application.MacroOptions Macro:="TI_MEDPRICE", Description:="Median Price", Category:="Tulip Cell Technical Analysis"
+    Application.MacroOptions Macro:="TI_MFI", Description:="Money Flow Index", Category:="Tulip Cell Technical Analysis"
+    Application.MacroOptions Macro:="TI_MIN", Description:="Minimum In Period", Category:="Tulip Cell Technical Analysis"
+    Application.MacroOptions Macro:="TI_MOM", Description:="Momentum", Category:="Tulip Cell Technical Analysis"
+    Application.MacroOptions Macro:="TI_MSW", Description:="Mesa Sine Wave", Category:="Tulip Cell Technical Analysis"
+    Application.MacroOptions Macro:="TI_MUL", Description:="Vector Multiplication", Category:="Tulip Cell Technical Analysis"
+    Application.MacroOptions Macro:="TI_NATR", Description:="Normalized Average True Range", Category:="Tulip Cell Technical Analysis"
+    Application.MacroOptions Macro:="TI_NVI", Description:="Negative Volume Index", Category:="Tulip Cell Technical Analysis"
+    Application.MacroOptions Macro:="TI_OBV", Description:="On Balance Volume", Category:="Tulip Cell Technical Analysis"
+    Application.MacroOptions Macro:="TI_PPO", Description:="Percentage Price Oscillator", Category:="Tulip Cell Technical Analysis"
+    Application.MacroOptions Macro:="TI_PSAR", Description:="Parabolic SAR", Category:="Tulip Cell Technical Analysis"
+    Application.MacroOptions Macro:="TI_PVI", Description:="Positive Volume Index", Category:="Tulip Cell Technical Analysis"
+    Application.MacroOptions Macro:="TI_QSTICK", Description:="Qstick", Category:="Tulip Cell Technical Analysis"
+    Application.MacroOptions Macro:="TI_ROC", Description:="Rate of Change", Category:="Tulip Cell Technical Analysis"
+    Application.MacroOptions Macro:="TI_ROCR", Description:="Rate of Change Ratio", Category:="Tulip Cell Technical Analysis"
+    Application.MacroOptions Macro:="TI_ROUND", Description:="Vector Round", Category:="Tulip Cell Technical Analysis"
+    Application.MacroOptions Macro:="TI_RSI", Description:="Relative Strength Index", Category:="Tulip Cell Technical Analysis"
+    Application.MacroOptions Macro:="TI_SIN", Description:="Vector Sine", Category:="Tulip Cell Technical Analysis"
+    Application.MacroOptions Macro:="TI_SINH", Description:="Vector Hyperbolic Sine", Category:="Tulip Cell Technical Analysis"
+    Application.MacroOptions Macro:="TI_SMA", Description:="Simple Moving Average", Category:="Tulip Cell Technical Analysis"
+    Application.MacroOptions Macro:="TI_SQRT", Description:="Vector Square Root", Category:="Tulip Cell Technical Analysis"
+    Application.MacroOptions Macro:="TI_STDDEV", Description:="Standard Deviation Over Period", Category:="Tulip Cell Technical Analysis"
+    Application.MacroOptions Macro:="TI_STDERR", Description:="Standard Error Over Period", Category:="Tulip Cell Technical Analysis"
+    Application.MacroOptions Macro:="TI_STOCH", Description:="Stochastic Oscillator", Category:="Tulip Cell Technical Analysis"
+    Application.MacroOptions Macro:="TI_SUB", Description:="Vector Subtraction", Category:="Tulip Cell Technical Analysis"
+    Application.MacroOptions Macro:="TI_SUM", Description:="Sum Over Period", Category:="Tulip Cell Technical Analysis"
+    Application.MacroOptions Macro:="TI_TAN", Description:="Vector Tangent", Category:="Tulip Cell Technical Analysis"
+    Application.MacroOptions Macro:="TI_TANH", Description:="Vector Hyperbolic Tangent", Category:="Tulip Cell Technical Analysis"
+    Application.MacroOptions Macro:="TI_TEMA", Description:="Triple Exponential Moving Average", Category:="Tulip Cell Technical Analysis"
+    Application.MacroOptions Macro:="TI_TODEG", Description:="Vector Degree Conversion", Category:="Tulip Cell Technical Analysis"
+    Application.MacroOptions Macro:="TI_TORAD", Description:="Vector Radian Conversion", Category:="Tulip Cell Technical Analysis"
+    Application.MacroOptions Macro:="TI_TR", Description:="True Range", Category:="Tulip Cell Technical Analysis"
+    Application.MacroOptions Macro:="TI_TRIMA", Description:="Triangular Moving Average", Category:="Tulip Cell Technical Analysis"
+    Application.MacroOptions Macro:="TI_TRIX", Description:="Trix", Category:="Tulip Cell Technical Analysis"
+    Application.MacroOptions Macro:="TI_TRUNC", Description:="Vector Truncate", Category:="Tulip Cell Technical Analysis"
+    Application.MacroOptions Macro:="TI_TSF", Description:="Time Series Forecast", Category:="Tulip Cell Technical Analysis"
+    Application.MacroOptions Macro:="TI_TYPPRICE", Description:="Typical Price", Category:="Tulip Cell Technical Analysis"
+    Application.MacroOptions Macro:="TI_ULTOSC", Description:="Ultimate Oscillator", Category:="Tulip Cell Technical Analysis"
+    Application.MacroOptions Macro:="TI_VAR", Description:="Variance Over Period", Category:="Tulip Cell Technical Analysis"
+    Application.MacroOptions Macro:="TI_VHF", Description:="Vertical Horizontal Filter", Category:="Tulip Cell Technical Analysis"
+    Application.MacroOptions Macro:="TI_VIDYA", Description:="Variable Index Dynamic Average", Category:="Tulip Cell Technical Analysis"
+    Application.MacroOptions Macro:="TI_VOLATILITY", Description:="Annualized Historical Volatility", Category:="Tulip Cell Technical Analysis"
+    Application.MacroOptions Macro:="TI_VOSC", Description:="Volume Oscillator", Category:="Tulip Cell Technical Analysis"
+    Application.MacroOptions Macro:="TI_VWMA", Description:="Volume Weighted Moving Average", Category:="Tulip Cell Technical Analysis"
+    Application.MacroOptions Macro:="TI_WAD", Description:="Williams Accumulation/Distribution", Category:="Tulip Cell Technical Analysis"
+    Application.MacroOptions Macro:="TI_WCPRICE", Description:="Weighted Close Price", Category:="Tulip Cell Technical Analysis"
+    Application.MacroOptions Macro:="TI_WILDERS", Description:="Wilders Smoothing", Category:="Tulip Cell Technical Analysis"
+    Application.MacroOptions Macro:="TI_WILLR", Description:="Williams %R", Category:="Tulip Cell Technical Analysis"
+    Application.MacroOptions Macro:="TI_WMA", Description:="Weighted Moving Average", Category:="Tulip Cell Technical Analysis"
+    Application.MacroOptions Macro:="TI_ZLEMA", Description:="Zero-Lag Exponential Moving Average", Category:="Tulip Cell Technical Analysis"
+End Sub

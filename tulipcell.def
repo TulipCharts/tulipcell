@@ -1,0 +1,15 @@
+LIBRARY "tulipcell.dll"
+EXPORTS
+GetVersion=GetVersion
+GetIndicator=GetIndicator
+GetIndicatorCount=GetIndicatorCount
+GetName=GetName
+GetFullName=GetFullName
+GetInputCount=GetInputCount
+GetOptionCount=GetOptionCount
+GetOutputCount=GetOutputCount
+GetInputName=GetInputName
+GetOptionName=GetOptionName
+GetOutputName=GetOutputName
+GetStart=GetStart
+Call=Call

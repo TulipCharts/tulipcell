@@ -285,6 +285,7 @@ foreach i $indicators {
 
 puts $out "\n"
 puts $out "Public Sub TI_RegisterHelp()"
+puts $out "    On Error Resume Next 'Older Excel versions don't support the following functions"
 puts $out [join $register \n]
 puts $out "End Sub"
 

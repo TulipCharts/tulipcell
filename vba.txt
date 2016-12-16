@@ -717,6 +717,7 @@ End Function
 
 
 Public Sub TI_RegisterHelp()
+    On Error Resume Next 'Older Excel versions don't support the following functions
     Application.MacroOptions Macro:="TI_ABS", Description:="Vector Absolute Value", Category:="Tulip Cell Technical Analysis"
     Application.MacroOptions Macro:="TI_ACOS", Description:="Vector Arccosine", Category:="Tulip Cell Technical Analysis"
     Application.MacroOptions Macro:="TI_AD", Description:="Accumulation/Distribution Line", Category:="Tulip Cell Technical Analysis"

@@ -182,8 +182,8 @@ Public Function TI_CallByName(name As String, ParamArray params() As Variant)
     ReDim out_arr(size * output_count)
 
 
-    Dim i As Integer
-    Dim pi As Integer
+    Dim i As Long
+    Dim pi As Long
     Dim cell As Variant
     i = 0
     For pi = 0 To input_count - 1

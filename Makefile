@@ -15,4 +15,4 @@ tulipcell.dll: tulipcell.c tulipcell.def $(IND_PATH)libindicators.a
 
 clean:
 	del *.dll
-	del -f *.o
+	del *.o

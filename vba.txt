@@ -21,7 +21,7 @@
 ' *
 ' */
 
-' * Tulip Cell version: 0.8.0
+' * Tulip Cell version: 0.8.1
 ' * TI VERSION: 0.8.1, TI BUILD: 1482259567
 
 
@@ -74,7 +74,7 @@ Public Sub TI_CheckForUpdate()
     ie.Visible = False
 
     Dim version as long
-    version = 800
+    version = 801
 
     ie.navigate "https://tulipcell.org/update?version=" & version & "&extra=" & Application.Version
 

@@ -22,8 +22,8 @@
 #This program creates the VBA interface to excel for tulipcell.dll
 
 
-set version 0.8.0
-set version_number 800
+set version 0.8.1
+set version_number 801
 
 #Set this to the path for Tulip Indicators sample.exe program
 set sample_path {../tulipindicators/sample.exe}

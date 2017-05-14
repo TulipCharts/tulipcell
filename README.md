@@ -1,13 +1,13 @@
 
-#Tulip Cell
+# Tulip Cell
 
-##Introduction
+## Introduction
 
 Tulip Cell is an Excel add-in that provides the technical analysis functions
 from the [Tulip Indicators](https://tulipindicators.org) library.
 
 
-##Building
+## Building
 
 Building is a pain. I suggest you grab the installer from [the
 website](https://tulipcell.org).
